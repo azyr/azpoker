@@ -1,6 +1,7 @@
 import numpy as np
 import itertools
 from azpoker import peval_ex
+from azpoker.peval_ex import evaluate_high_perm
 
 SUIT_CODE = {
     'c': 0,
@@ -82,7 +83,7 @@ def rank_flushdraw(fv, ncards):
         boards = [codes_to_mask(x) for x in boards]
     all_pctiles = []
     for board in boards:
-        pctile = get_sd_rank_high(hcs1, board)
+        pctile = evaluate_high_perm(hcs1, board)
         all_pctiles.append(pctile)
     return np.median(all_pctiles)
 
@@ -100,6 +101,33 @@ def get_sd_rank_high(hcs1_mask, board_mask):
     res = np.zeros(len(masks), dtype=np.int32)
     peval_ex.evaluate_high(masks, res)
     rank1 = res[0]
-    all_ranks = np.sort(res[1:])
-    pctile = np.sum(rank1 >= all_ranks) / len(all_ranks)
+    # all_ranks = np.sort(res[1:])
+    pctile = np.sum(rank1 >= res[1:]) / (len(res) - 1)
     return pctile
+
+def out_value(pctile, steepness=2):
+    """Calculates a multiplier describing goodness of an out.
+    
+    0 <= pctile <= 1
+    """
+    #res = 2.01347589399817 / (1 + np.e**(-2*((pctile - .8)*5))) - 1
+    if pctile <= .8:
+        return 0
+    res = ((pctile - .8)*5) ** steepness
+    return res
+out_value = np.vectorize(out_value, otypes=[np.float])
+
+def calc_forward_value(hcs1_mask, board_mask):
+    hcs1_codes = handmask_to_codes(hcs1_mask)
+    board_codes = handmask_to_codes(board_mask)
+    deck = set(range(52)).difference(hcs1_codes).difference(board_codes)
+    deck = list(deck)
+    forward_masks = peval_ex.calc_permutations(deck, 1)
+    forward_masks = [x | board_mask for x in forward_masks]
+    pctiles = np.zeros(len(forward_masks))
+    pctile_now = evaluate_high_perm(hcs1_mask, board_mask)
+    for i, fwdmask in enumerate(forward_masks):
+        pctile = evaluate_high_perm(hcs1_mask, fwdmask)
+        pctiles[i] = pctile
+        # print(handmask_to_str(fwdmask), pctile, out_value(pctile, 1.5))
+    return pctile_now, pctiles
