@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+import pickle
 from azpoker import peval_ex
 from azpoker.peval_ex import evaluate_high_perm
 
@@ -131,3 +132,8 @@ def calc_forward_value(hcs1_mask, board_mask):
         pctiles[i] = pctile
         # print(handmask_to_str(fwdmask), pctile, out_value(pctile, 1.5))
     return pctile_now, pctiles
+
+DEPR_FN = "/".join("/home/seb/pylib/azpoker/peval.py".split('/')[:-1]) + "/flop_depr_85.p"
+DEPR_DICT = pickle.load(open(DEPR_FN, 'rb'))
+def get_flop_depr(boardmask):
+    return DEPR_DICT[boardmask]

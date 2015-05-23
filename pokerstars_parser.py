@@ -1,24 +1,80 @@
 import re
 import copy
+import os
 import numpy as np
 import pandas as pd
 
+#### EXCEPTIONS ####
+
+class HandParseException(Exception):
+    pass
+
+####
+
+def find_files(directory, pattern, results=None):
+    # print(directory)
+    if results is None:
+        results = []
+    entries = os.listdir(directory)
+    for x in entries:
+        fullpath = os.path.join(directory, x)
+        if os.path.isdir(fullpath):
+            find_files(fullpath, pattern, results)
+        elif re.fullmatch(pattern, x):
+            results.append(fullpath)
+    return results       
+
+def parse_directory(directory, verbosity=1):
+    hhfiles = find_files(directory, '.*[.]txt')
+    res = []
+    handcount = 0
+    errcounts = {}
+    def prt(s='', lvl=1, end='\n'):
+        if lvl <= verbosity:
+            print(s, end=end)
+    for i, fn in enumerate(hhfiles):
+        #print(fn)
+        prt("{}/{}".format(i + 1, len(hhfiles)), end='')
+        newres, errors = parse_hhfile(fn)
+        handcount += len(newres)
+        prt(": {:,}".format(handcount), end='')
+        if errors:
+            prt(" ({} errors)".format(len(errors)))
+            _, errs = zip(*errors)
+            for err in errs:
+                errmsg = err.args[0]
+                if not errmsg in errcounts:
+                    errcounts[errmsg] = 0
+                errcounts[errmsg] += 1
+        else:
+            prt()
+        res += newres
+    return res, errcounts
+
 def parse_hhfile(fn):
+    errors = []
     with open(fn) as f:
         txt = f.read()
     s = txt
     res = []
-    for i in range(1000):
+    for i in range(1000000):
         m = re.search('PokerStars Hand #[0-9]+: .*\n', s)
         if not m:
-            assert set(s) == {'\n'}
-            break  # end of hand history file
-        endidx = s.find('\n\n\n', m.start())
+            break  # EOF
+        s2 = s[m.end():]
+        next_m = re.search('PokerStars Hand #[0-9]+: .*\n', s2)
+        if next_m:
+            endidx = next_m.start() + (m.end() - m.start())
+        else:
+            endidx = len(s)
         hand = s[m.start():endidx]
-        parsed = parse_hand(hand)
+        try:
+            parsed = parse_hand(hand)
+        except HandParseException as err:
+            errors.append((i, err))
         s = s[endidx:]
         res.append(parsed)
-    return res
+    return res, errors
 
 def parse_header(s):
     d = {}
@@ -152,6 +208,10 @@ def calc_minv(actions, baseline=None, ante=0):
     return minv
 
 def parse_hand(s):
+    if "*** FIRST SHOW DOWN ***" in s:
+        raise HandParseException("Run-it-twice parsing is not supported yet")
+    if "*** SUMMARY ***" not in s:
+        raise HandParseException("Incomplete hand history")
     #nicksyms = '[a-zA-Z0-9_.öÖäÄ ]'  # too many to list really ...
     lines = s.splitlines()
     header = lines[0]
