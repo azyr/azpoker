@@ -88,7 +88,7 @@ def rank_flushdraw(fv, ncards):
         all_pctiles.append(pctile)
     return np.median(all_pctiles)
 
-def get_sd_rank_high(hcs1_mask, board_mask):
+def get_sd_rank_high(hcs1_mask, board_mask, reduce_splits=True):
     deck = set(range(52))
     hcs1_codes = handmask_to_codes(hcs1_mask)
     board_codes = handmask_to_codes(board_mask)
@@ -103,7 +103,10 @@ def get_sd_rank_high(hcs1_mask, board_mask):
     peval_ex.evaluate_high(masks, res)
     rank1 = res[0]
     # all_ranks = np.sort(res[1:])
-    pctile = np.sum(rank1 >= res[1:]) / (len(res) - 1)
+    if reduce_splits:
+        pctile = (np.sum(rank1 > res[1:]) + np.sum(rank1 == res[1:]) / 2) / (len(res) - 1)
+    else:
+        pctile = np.sum(rank1 >= res[1:]) / (len(res) - 1)
     return pctile
 
 def out_value(pctile, steepness=2):

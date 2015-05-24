@@ -133,11 +133,11 @@ def parse_street(s, pot_now, baseline=None, antes=None):
     streetstr = re.findall('[*]{3} [A-Z ]+ [*]{3}', header)[0][4:-4]
     if streetstr == 'HOLE CARDS':
         street = 'preflop'
-        cards = []
+        # cards = []
     else:
         assert ' ' not in streetstr
         street = streetstr.lower()
-        cards = re.findall('[[][A-Z a-z0-9]+[]]', header)[-1][1:-1].split(' ')
+        # cards = re.findall('[[][A-Z a-z0-9]+[]]', header)[-1][1:-1].replace(' ', '')
     actions = []
     uncalled_bet = None
     for line in lines:
@@ -176,7 +176,7 @@ def parse_street(s, pot_now, baseline=None, antes=None):
     if baseline:
         for name in minv:
             minv[name] += antes[name]
-    return actions, cards, uncalled_bet, minv
+    return actions, uncalled_bet, minv
 
 # OBSOLETE
 def calc_minv(actions, baseline=None, ante=0):
@@ -212,37 +212,33 @@ def parse_hand(s):
         raise HandParseException("Run-it-twice parsing is not supported yet")
     if "*** SUMMARY ***" not in s:
         raise HandParseException("Incomplete hand history")
-    #nicksyms = '[a-zA-Z0-9_.öÖäÄ ]'  # too many to list really ...
     lines = s.splitlines()
     header = lines[0]
     s = "\n".join(lines[1:])
     d = parse_header(header)
-    #uncalled_bet_lines = [x for x in lines if x.startswith('Uncalled bet')]
-    #uncalled_bets = []
-    #for line in uncalled_bet_lines:
-    #    uncalled_bets.append(float(re.findall('[(].[0-9.]+[)]', line)[0][2:-1]))
-    #assert len(uncalled_bets) < 2
-    #d['uncalled_bets'] = sum(uncalled_bets)
     table_line = s[:s.find('\n')]
     d['table_name'] = re.findall("'.*'", table_line)[0][1:-1]
-    seatdefs = re.findall('Seat [0-9]: .*[(].[0-9.]+ in chips[)]', s)
+    seatdefs = re.findall('Seat [0-9]+: .*[(].[0-9.]+ in chips[)]', s)
+    stacks = {}
     sd_dict = {}
     for sd in seatdefs:
-        seat_no = int(sd[sd.find(' ')+1])
+        seat_no = int(sd[sd.find(' ')+1:sd.find(':')])
         nick = re.findall(': .* [(]', sd)[0][1:-1].strip()
         sd_dict[seat_no] = nick
-        # assert re.fullmatch(nicksyms + '+', nick)  # just making sure i got the naming convention right
+        amt = float(re.findall('[(].[0-9.]+ ', sd)[0][2:-1])
+        stacks[nick] = amt
     d['sd_dict'] = sd_dict
+    d['stacks'] = stacks
     relpos_dict = {}
     btn_seat = int(s[s.find('#')+1])
     relpos_dict[sd_dict[btn_seat]] = 'BTN'
     summarylines = lines[lines.index('*** SUMMARY ***')+1:]
     for line in summarylines:
         if '(small blind)' in line:
-            name = re.findall('Seat [0-9]: [^(]+ [(]', line)[0][8:-2]
+            name = re.findall('Seat [0-9]+: [^(]+ [(]', line)[0][8:-2]
             relpos_dict[name] = 'SB'
         elif '(big blind)' in line:
-            name = re.findall('Seat [0-9]: [^(]+ [(]', line)[0][8:-2]
+            name = re.findall('Seat [0-9]+: [^(]+ [(]', line)[0][8:-2]
             relpos_dict[name] = 'BB'
     cur_suffix = 1
     for i in range(btn_seat - 2, -10, -1):
@@ -279,33 +275,26 @@ def parse_hand(s):
         ante = list(antes.values())[0]
     d['ante'] = ante
     d['post_dict'] = ps_dict
-    #extra_antes = {}
-    #for name, val in ps_dict.items():
-    #    if d['relpos'][name] == 'BB':
-    #        extra = max(0, val - d['bb'] - d['ante'])
-    #        if extra > 0.0001:
-    #            raise Exception("Shouldn't happen")
-    #    elif d['relpos'][name] == 'SB':
-    #        extra = max(0, val - d['sb'] - d['ante'])
-    #        if extra > 0.0001:
-    #            raise Exception("Shouldn't happen")
-    ##    else:
-    #        extra = max(0, val - d['bb'] - d['ante'])
-    #    extra_antes[name] = extra  # capture if someone posts both small and big blind
-    #for post in ps_dict:
-    #    if 
     d['extra_antes'] = extra_antes
     implied_antes = (pd.Series(antes) + pd.Series(extra_antes)).to_dict()
     assert len(relpos_dict) == len(sd_dict) == len(ps_dict)
     m = re.search('Dealt to .* [[].. ..[]]', s)
+    holecards = {}
     if not m:
         d['hero'] = None
-        d['holecards'] = None
     else:
         heroline = s[m.start():m.end()]
         d['hero'] = heroline[9:heroline.find('[')].strip()
-        holecards = heroline[heroline.find('[')+1:heroline.find(']')]
-        d['holecards'] = holecards.split(' ')
+        hhc = heroline[heroline.find('[')+1:heroline.find(']')]
+        holecards[d['hero']] = hhc.replace(' ', '')
+    # postsum_s = s.find('*** SUMMARY ***')
+    handlines = re.findall('Seat [0-9]+: .*[[].*[]].*\n', s)
+    for ss in handlines:
+        seatno = int(ss[ss.find(' ')+1:ss.find(':')])
+        nick = sd_dict[seatno]
+        hc = re.findall('[[][0-9a-z A-Z]+[]]', ss)[0][1:-1].replace(' ', '')
+        holecards[nick] = hc
+    d['holecards'] = holecards
     potrake = re.findall('Total pot .+ [|] Rake .[0-9.]+', s)[0]
     spl = potrake.split('|')
     rake = float(re.findall('[0-9.]+', spl[1])[0])
@@ -315,9 +304,6 @@ def parse_hand(s):
     d['totalpot'] = totalpot
     d['pots'] = pots  # only when there are side pots
     d['rake'] = rake
-    #ed = {name: 0 for name in sd_dict.values()}
-    #minv = {'preflop': copy.deepcopy(ed), 'flop': copy.deepcopy(ed),
-    #        'turn': copy.deepcopy(ed), 'river': copy.deepcopy(ed)}
     def get_street(start, end):
         sloc = s.find(start)
         eloc = s.find(end)
@@ -334,7 +320,6 @@ def parse_hand(s):
     ]
     minv = {}
     act_dict = {}
-    comcards = []
     d['last_street'] = 'showdown'
     pot_now = sum(ps_dict.values())
     uncalled_bet = None
@@ -347,15 +332,13 @@ def parse_hand(s):
         himark = 0
         if baseline:
             himark = max(baseline.values()) - min(baseline.values())  # bb - ante
-        actions, cards, ucb, mistr = parse_street(ss, pot_now, baseline, implied_antes)
+        actions, ucb, mistr = parse_street(ss, pot_now, baseline, implied_antes)
         if not uncalled_bet:
             uncalled_bet = ucb  # in case hand is all-in before river
         minv[street] = mistr
         if actions:
             pot_now = actions[-1][3]
-        #minv[street] = calc_minv(actions, baseline, ante)
         act_dict[street] = actions
-        comcards += cards
         if last_street:
             d['last_street'] = street
             break
@@ -367,18 +350,6 @@ def parse_hand(s):
                 if name in minv[street]:
                     minv[street][uncalled_bet[1]] -= uncalled_bet[0]
                     break
-                #for t in act_dict[street][::-1]:
-                #    action = t[1]
-                #    if action == 'raise':
-                #        name = t[0]
-                #        to_call = t[5]
-                #        assert name == uncalled_bet[1]
-                #        prev_inv = minv[street][name] - to_call
-                #        # this amount will be added to pot for rake considerations
-                #        minv[street][name] -= prev_inv
-                #        break
-                #lastact = act_dict[street][-1]
-                #assert uncalled_bet[1] 
     minvtot = {name: 0 for name in sd_dict.values()}
     for name in sd_dict.values():
         for ms in minv.values():
@@ -387,24 +358,27 @@ def parse_hand(s):
     minv['total'] = minvtot
     d['minv'] = minv
     d['act_dict'] = act_dict
-    d['com_cards'] = comcards
     d['uncalled_bet'] = uncalled_bet
     winners = []
     for line in summarylines:
-        if re.fullmatch('Seat [0-9]: .* collected [(].[0-9.]+[)]', line):
+        # TODO: use seat number here to determine player names => simpler & more efficient
+        # if re.fullmatch('Seat [0-9]: .* collected [(].[0-9.]+[)]', line):
+        if re.fullmatch('Seat [0-9]+:.*[(].[0-9.]+[)].*', line):
             amt = float(re.findall('[(].[0-9.]+[)]', line)[0][2:-1])
-            name = re.findall('Seat [0-9]: [^(]+ [(]', line)[0][8:-1]
-            if 'collected' in name:
-                name = name[:-10]
-            else:
-                name = name[:-1]
-            name = re.sub('[(].*[)]', '', name).strip()
-            winners.append((name, amt))
-        if re.fullmatch("Seat [0-9]: .+ showed [[].+[]] and won [(].[0-9.]+[)] with .*", line):
-            amt = float(re.findall('[(].[0-9.]+[)]', line)[0][2:-1])
-            name = re.findall('Seat [0-9]: .+ showed', line)[0][8:-7]
-            name = re.sub('[(].*[)]', '', name).strip()
-            winners.append((name, amt))
+            seatno = int(line[line.find(' ')+1:line.find(':')])
+            nick = sd_dict[seatno]
+            # name = re.findall('Seat [0-9]: [^(]+ [(]', line)[0][8:-1]
+            # if 'collected' in name:
+            #     name = name[:-10]
+            # else:
+            #     name = name[:-1]
+            # name = re.sub('[(].*[)]', '', name).strip()
+            winners.append((nick, amt))
+        # if re.fullmatch("Seat [0-9]: .+ showed [[].+[]] and won [(].[0-9.]+[)] with .*", line):
+        #     amt = float(re.findall('[(].[0-9.]+[)]', line)[0][2:-1])
+        #     name = re.findall('Seat [0-9]: .+ showed', line)[0][8:-7]
+        #     name = re.sub('[(].*[)]', '', name).strip()
+        #     winners.append((name, amt))
     d['winners'] = winners
     d['totalpot_no_rake'] = d['totalpot'] - d['rake']
     names, amts = zip(*winners)
@@ -419,6 +393,12 @@ def parse_hand(s):
         ucb = 0
     else:
         ucb = uncalled_bet[0]
+    board = []
+    m = re.search('Board [[][0-9a-z A-Z]+[]]', s)
+    if m:
+        board_s = s[m.start():m.end()]
+        board = re.findall('[[][0-9a-z A-Z]+[]]', board_s)[0][1:-1].replace(' ', '')
+    d['board'] = board
     #return d
     assert np.isclose(d['totalpot'], sum(minvtot.values()))
     return d

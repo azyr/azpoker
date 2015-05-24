@@ -95,7 +95,7 @@ void get_bit_locations(int64 x, int64 nbits, int64* out)
     }
 }
 
-double evaluate_high_perm(int64 hc1, int64 board)
+double evaluate_high_perm(int64 hc1, int64 board, bool rs)
 {
     int64 cnt;
 
@@ -162,17 +162,34 @@ double evaluate_high_perm(int64 hc1, int64 board)
     }
 
     // compute percentile
-    cnt = 0L;
-    for (int64 i = 1L; i < tot_perms; ++i)
+    double dcnt = 0.0;
+    if (!rs)
     {
-        if (hvals[0] >= hvals[i])
+        for (int64 i = 1L; i < tot_perms; ++i)
         {
-            cnt += 1L;
+            if (hvals[0] >= hvals[i])
+            {
+                dcnt += 1.0;
+            }
+        }
+    }
+    else
+    {
+        for (int64 i = 1L; i < tot_perms; ++i)
+        {
+            if (hvals[0] > hvals[i])
+            {
+                dcnt += 1.0;
+            }
+            else if (hvals[0] == hvals[i])
+            {
+                dcnt += 0.5;
+            }
         }
     }
     // cout << tot_perms << endl;
     // cout << hc1_ncards << " " << board_ncards << endl;
-    return (double)cnt / (tot_perms - 1L);
+    return dcnt / (tot_perms - 1L);
 }
 
 int evaluate_high(int64* masks, int numevals, int* out)

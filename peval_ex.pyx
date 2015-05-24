@@ -2,18 +2,19 @@ import itertools
 import numpy as np
 from libcpp.string cimport string
 from libcpp.vector cimport vector
+from libcpp cimport bool
 
 ctypedef long long int64
 
 cdef extern from "peval.hpp":
     void c_evaluate_high "evaluate_high" (int64* masks,int numevals, int* out)
-    double c_evaluate_high_perm "evaluate_high_perm" (int64 hc1, int64 board)
+    double c_evaluate_high_perm "evaluate_high_perm" (int64 hc1, int64 board, bool rs)
 
 def evaluate_high(int64[:] masks, int[:] out):
     c_evaluate_high(&masks[0], masks.shape[0], &out[0])
 
-def evaluate_high_perm(int64 hc1, int64 board):
-    return c_evaluate_high_perm(hc1, board)
+def evaluate_high_perm(int64 hc1, int64 board, bool rs=True):
+    return c_evaluate_high_perm(hc1, board, rs)
 
 def handmask_to_codes(int64 mask):
     codes = []
