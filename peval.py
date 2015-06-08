@@ -121,7 +121,7 @@ def out_value(pctile, steepness=2):
     return res
 out_value = np.vectorize(out_value, otypes=[np.float])
 
-def calc_forward_value(hcs1_mask, board_mask):
+def calc_forward_value(hcs1_mask, board_mask, hrange=None, reduce_splits=True):
     hcs1_codes = handmask_to_codes(hcs1_mask)
     board_codes = handmask_to_codes(board_mask)
     deck = set(range(52)).difference(hcs1_codes).difference(board_codes)
@@ -129,9 +129,9 @@ def calc_forward_value(hcs1_mask, board_mask):
     forward_masks = peval_ex.calc_permutations(deck, 1)
     forward_masks = [x | board_mask for x in forward_masks]
     pctiles = np.zeros(len(forward_masks))
-    pctile_now = evaluate_high_perm(hcs1_mask, board_mask)
+    pctile_now = get_high_pctile(hcs1_mask, board_mask, hrange, reduce_splits)
     for i, fwdmask in enumerate(forward_masks):
-        pctile = evaluate_high_perm(hcs1_mask, fwdmask)
+        pctile = get_high_pctile(hcs1_mask, fwdmask, hrange, reduce_splits)
         pctiles[i] = pctile
         # print(handmask_to_str(fwdmask), pctile, out_value(pctile, 1.5))
     return pctile_now, pctiles
@@ -140,3 +140,40 @@ DEPR_FN = "/".join("/home/seb/pylib/azpoker/peval.py".split('/')[:-1]) + "/flop_
 DEPR_DICT = pickle.load(open(DEPR_FN, 'rb'))
 def get_flop_depr(boardmask):
     return DEPR_DICT[boardmask]
+
+COMBOS_52_2 = list(itertools.combinations(range(52), 2))
+def extract_hc_instances(hc):
+    res = []
+    c1 = handmask_to_codes(hc)
+    ns1 = len(set([x // 13 for x in c1]))
+    r1 = set([x % 13 for x in c1])
+    for c2 in COMBOS_52_2:
+        ns2 = len(set([x // 13 for x in c2]))
+        r2 = set([x % 13 for x in c2])
+        if ns2 == ns1 and r1 == r2:
+            res.append(codes_to_mask(c2))
+    return res
+
+def get_high_pctile(hcs1_mask, board_mask, hrange=None, reduce_splits=True):
+    if hrange is None:
+        return evaluate_high_perm(hcs1_mask, board_mask, reduce_splits)
+    else:
+        deck = set(range(52))
+        hcs1_codes = handmask_to_codes(hcs1_mask)
+        board_codes = handmask_to_codes(board_mask)
+        deck = list(deck.difference(hcs1_codes).difference(board_codes))
+        assert len(deck) == 52 - len(hcs1_codes) - len(board_codes)
+        mask1 = hcs1_mask | board_mask
+        other_masks = [x for x in hrange if x & mask1 == 0]
+        other_masks = [x | board_mask for x in other_masks]
+        masks = [mask1] + other_masks
+        masks = np.array(masks, dtype=np.int64)
+        res = np.zeros(len(masks), dtype=np.int32)
+        peval_ex.evaluate_high(masks, res)
+        rank1 = res[0]
+        # all_ranks = np.sort(res[1:])
+        if reduce_splits:
+            pctile = (np.sum(rank1 > res[1:]) + np.sum(rank1 == res[1:]) / 2) / (len(res) - 1)
+        else:
+            pctile = np.sum(rank1 >= res[1:]) / (len(res) - 1)
+        return pctile

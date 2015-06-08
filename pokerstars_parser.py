@@ -298,11 +298,18 @@ def parse_hand(s):
     potrake = re.findall('Total pot .+ [|] Rake .[0-9.]+', s)[0]
     spl = potrake.split('|')
     rake = float(re.findall('[0-9.]+', spl[1])[0])
+    ss = re.findall('Total pot .[0-9.]+ ', spl[0])[0]
+    totalpot = float(ss[11:-1])
     spl = re.findall('[0-9.]+', spl[0])
     totalpot = float(spl[0])
-    pots = [float(x[:-1]) for x in spl[1:]]
     d['totalpot'] = totalpot
-    d['pots'] = pots  # only when there are side pots
+    # information about the side pots is useless, it seems
+    # pots = [x[:-1] for x in spl[1:]]
+    # for i, pot in enumerate(pots):
+    #     if pot[-1] == '.':
+    #         pot = pot[:-1]
+    #     pots[i] = float(pot)
+    # d['pots'] = pots  # only when there are side pots
     d['rake'] = rake
     def get_street(start, end):
         sloc = s.find(start)
