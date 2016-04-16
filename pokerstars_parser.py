@@ -29,6 +29,7 @@ def parse_directory(directory, verbosity=1):
     res = []
     handcount = 0
     errcounts = {}
+    skipped_files = 0
     def prt(s='', lvl=1, end='\n'):
         if lvl <= verbosity:
             print(s, end=end)
@@ -40,21 +41,27 @@ def parse_directory(directory, verbosity=1):
         prt(": {:,}".format(handcount), end='')
         if errors:
             prt(" ({} errors)".format(len(errors)))
-            _, errs = zip(*errors)
+            indices, errs = zip(*errors)
+            skipped_files += len([x for x in indices if x == -1])
             for err in errs:
-                errmsg = err.args[0]
+                errmsg = str(err)
                 if not errmsg in errcounts:
                     errcounts[errmsg] = 0
                 errcounts[errmsg] += 1
         else:
             prt()
         res += newres
-    return res, errcounts
+    return res, errcounts, skipped_files
 
 def parse_hhfile(fn):
+    #print(fn)
     errors = []
-    with open(fn) as f:
-        txt = f.read()
+    try:
+        with open(fn) as f:
+            txt = f.read()
+    except UnicodeDecodeError as e:
+        errors.append((-1, "UnicodeDecodeError"))
+        return [], errors
     s = txt
     res = []
     for i in range(1000000):
@@ -70,10 +77,11 @@ def parse_hhfile(fn):
         hand = s[m.start():endidx]
         try:
             parsed = parse_hand(hand)
+            res.append(parsed)
         except HandParseException as err:
             errors.append((i, err))
         s = s[endidx:]
-        res.append(parsed)
+        # res.append(parsed)
     return res, errors
 
 def parse_header(s):
@@ -146,7 +154,10 @@ def parse_street(s, pot_now, baseline=None, antes=None):
             name = line[line.find('returned to ')+12:]
             uncalled_bet = (amt, name)
             break
-        name = line[:line.find(':')]
+        if "has timed out while being disconnected" in line:
+            continue
+        #name = line[:line.find(':')]
+        name = line[:re.search(".*:", line).end()-1]
         action = re.findall(': [a-z]+', line)[0][2:-1]
         m = re.search('(raises|calls|bets) .[0-9.]+', line)  # we take the first number
         amt = None
@@ -213,6 +224,9 @@ def parse_hand(s):
     if "*** SUMMARY ***" not in s:
         raise HandParseException("Incomplete hand history")
     lines = s.splitlines()
+    for line in lines:
+        if line == "Hand cancelled":
+            raise HandParseException("Hand Cancelled")
     header = lines[0]
     s = "\n".join(lines[1:])
     d = parse_header(header)
@@ -253,10 +267,11 @@ def parse_hand(s):
     ps_dict = {name: 0 for name in sd_dict.values()}
     posts = re.findall('.*: posts [a-z &]+.[0-9.]+\n', s)
     posts = [x[:-1] for x in posts]  # remove newline
-    antes = {}
+    antes = {name: 0 for name in sd_dict.values()}
     extra_antes = {name: 0 for name in sd_dict.values()}
     for ps in posts:
-        nick = ps[:ps.find(':')]
+        nick = ps[:re.search(".*:", ps).end()-1]
+        #nick = ps[:ps.find(':')]
         #if 'big blind' in ps:
         #    relpos_dict[nick] = 'BB'
         #elif 'small blind' in ps:
@@ -292,7 +307,7 @@ def parse_hand(s):
     for ss in handlines:
         seatno = int(ss[ss.find(' ')+1:ss.find(':')])
         nick = sd_dict[seatno]
-        hc = re.findall('[[][0-9a-z A-Z]+[]]', ss)[0][1:-1].replace(' ', '')
+        hc = re.findall('[[][0-9a-z A-Z]+[]]', ss)[-1][1:-1].replace(' ', '')
         holecards[nick] = hc
     d['holecards'] = holecards
     potrake = re.findall('Total pot .+ [|] Rake .[0-9.]+', s)[0]
@@ -406,6 +421,18 @@ def parse_hand(s):
         board_s = s[m.start():m.end()]
         board = re.findall('[[][0-9a-z A-Z]+[]]', board_s)[0][1:-1].replace(' ', '')
     d['board'] = board
-    #return d
-    assert np.isclose(d['totalpot'], sum(minvtot.values()))
+    # sanity checks
+    if "flop" in d["act_dict"]:
+        assert len(d["board"]) >= 6
+    if "turn" in d["act_dict"]:
+        assert len(d["board"]) >= 8
+    if "river" in d["act_dict"]:
+        assert len(d["board"]) >= 10
+    if not np.isclose(d['totalpot'], sum(minvtot.values())):
+        msg = "\nTotal pot doesn't match calculated values:\n"
+        msg += "Total pot: {}, sum(minvtot.values()): {}".format(d['totalpot'],\
+                sum(minvtot.values()))
+        msg += "\nHand #{}".format(d["hand_no"])
+        print(msg)
+        raise HandParseException("Total pot doesn't match calculated values")
     return d

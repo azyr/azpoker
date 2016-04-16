@@ -121,12 +121,12 @@ def out_value(pctile, steepness=2):
     return res
 out_value = np.vectorize(out_value, otypes=[np.float])
 
-def calc_forward_value(hcs1_mask, board_mask, hrange=None, reduce_splits=True):
+def calc_forward_value(hcs1_mask, board_mask, numstreets=1, hrange=None, reduce_splits=True):
     hcs1_codes = handmask_to_codes(hcs1_mask)
     board_codes = handmask_to_codes(board_mask)
     deck = set(range(52)).difference(hcs1_codes).difference(board_codes)
     deck = list(deck)
-    forward_masks = peval_ex.calc_permutations(deck, 1)
+    forward_masks = peval_ex.calc_permutations(deck, numstreets)
     forward_masks = [x | board_mask for x in forward_masks]
     pctiles = np.zeros(len(forward_masks))
     pctile_now = get_high_pctile(hcs1_mask, board_mask, hrange, reduce_splits)
